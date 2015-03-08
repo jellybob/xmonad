@@ -1,6 +1,8 @@
 README
 =======
 
+*Forked from https://github.com/juselius/xmonad*
+
 This xmonad setup works with (at least) Ubuntu 14.10. The defualt setup is
 based on plain xmonad together with xmobar. There are also configs for Gnome
 and Xfce4, but they are a bit shakey at times.
