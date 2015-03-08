@@ -7,6 +7,7 @@ import XMonad.Hooks.ManageDocks
 import XMonad.Util.Run (spawnPipe, safeSpawn)
 import XMonad.Hooks.EwmhDesktops
 import XMonad.Actions.CycleWS
+import XMonad.Layout.Tabbed
 import qualified XMonad.Util.EZConfig as EZ
 import qualified XMonad.StackSet as W
 import qualified Data.Map as M
@@ -24,7 +25,9 @@ main = do
     xmonad $ ewmh defaultConfig
         { modMask            = mod4Mask
 	, logHook            = dynamicLogWithPP (prettyPrinter dbus)
-        , layoutHook         = desktopLayouts
+        , layoutHook         = 
+          desktopLayoutModifiers $
+          (Tall 1 0.03 0.5 ||| Full ||| simpleTabbed)
         , manageHook         =
                 myManageHook
             <+> manageDocks
