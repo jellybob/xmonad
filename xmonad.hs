@@ -6,28 +6,31 @@ import XMonad.Hooks.DynamicLog
 import XMonad.Hooks.ManageDocks
 import XMonad.Util.Run (spawnPipe, safeSpawn)
 import XMonad.Hooks.EwmhDesktops
+import XMonad.Actions.CycleWS
 import qualified XMonad.Util.EZConfig as EZ
 import qualified XMonad.StackSet as W
 import qualified Data.Map as M
 import System.IO (hPutStrLn)
 import System.Environment (getEnvironment, getEnv)
 import DesktopLayouts
+import qualified DBus as D
+import qualified DBus.Client as D
+import qualified Codec.Binary.UTF8.String as UTF8
 
+main :: IO ()
 main = do
-    xmproc <- spawnPipe "xmobar"
+    dbus <- D.connectSession
+    getWellKnownName dbus
     xmonad $ ewmh defaultConfig
         { modMask            = mod4Mask
+	, logHook            = dynamicLogWithPP (prettyPrinter dbus)
         , layoutHook         = desktopLayouts
-        , logHook = dynamicLogWithPP xmobarPP
-            { ppOutput = hPutStrLn xmproc
-            , ppTitle = xmobarColor "green" "" . shorten 50
-            }
         , manageHook         =
                 myManageHook
             <+> manageDocks
             <+> manageHook defaultConfig
         , handleEventHook    = docksEventHook <+> fullscreenEventHook
-        , terminal           = "xfce4-terminal"
+        , terminal           = "gnome-terminal"
         , keys               = myKeys <+> keys defaultConfig
         , borderWidth        = 1
         , normalBorderColor  = "gray"
@@ -35,37 +38,18 @@ main = do
         , focusFollowsMouse  = True
         , workspaces = map show [1..9]
         , startupHook        =
-            gnomeRegister2 >> startup >> startupHook defaultConfig
+            gnomeRegister2 >> startupHook defaultConfig
         }
 
 myManageHook = composeAll . concat $
     [ [isFullscreen --> myDoFullFloat]
     , [className =? c --> doIgnore      | c <- myIgnores]
     , [className =? c --> doCenterFloat | c <- myFloats]
-    , [className =? c --> doShift "1"   | c <- onWs1]
-    , [className =? c --> doShift "2"   | c <- onWs2]
-    , [className =? c --> doShift "7"   | c <- onWs7]
-    , [className =? c --> doShift "8"   | c <- onWs8]
-    , [className =? c --> doShift "9"   | c <- onWs9]
     , [appName   =? n --> doCenterFloat | n <- myNames]
-    , [citrixReceiver --> doFloat]
     , [currentWs =? n --> insertPosition Below Newer | n <- ["1", "2"]]
     ] where
-        -- workspaces
-        onWs1   = myMail
-        onWs2   = myWeb ++ myMusic
-        onWs7   = myChat
-        onWs8   = myGimp
-        onWs9   = myVm
-
         -- classnames
-        myMail   = ["Thunderbird", "Evolution"]
-        myWeb    = ["Firefox", "Google-chrome", "Chromium", "Chromium-browser"]
         myMovie  = ["mplayer2", "Vlc"]
-        myMusic  = ["Rhythmbox", "Spotify"]
-        myChat   = ["Pidgin", "Buddy List", "Skype"]
-        myGimp   = ["Gimp"]
-        myVm     = ["VirtualBox", "Remmina"]
         myFloats = myMovie ++
             [ "Xmessage"
             , "XFontSel"
@@ -73,8 +57,6 @@ myManageHook = composeAll . concat $
             , "Downloads"
             , "Nm-connection-editor"
             , "Launchbox"
-            --, "VirtualBox"
-            --, "Remmina"
             ]
 
         -- resources
@@ -83,58 +65,19 @@ myManageHook = composeAll . concat $
         -- names
         myNames = ["bashrun", "Google Chrome Options", "Chromium Options"]
 
-        -- special apps
-        citrixReceiver = className =? "sun-applet-PluginMain" <&&>
-            appName =? "sun-awt-X11-XFramePeer"
-
         -- a trick for fullscreen but stil allow focusing of other WSs
         myDoFullFloat :: ManageHook
         myDoFullFloat = doF W.focusDown <+> doFullFloat
 
 myKeys = flip EZ.mkKeymap [
-      ("M-p", spawn dmenu)
-    , ("S-M-p", spawn "/opt/bin/launchbox.py")
+      ("M-r", spawn "gnome-do")
     , ("S-M-n", spawn "nautilus --no-desktop --browser")
-    , ("S-M-s", spawn "gnome-control-center")
     , ("S-M-q", spawn "gnome-session-quit")
-    , ("<XF86AudioMute>"
-        , spawn "amixer -q -D pulse sset Master toggle")
-    , ("<XF86AudioRaiseVolume>"
-        , spawn "amixer -q -D pulse sset Master 6000+ unmute")
-    , ("<XF86AudioLowerVolume>"
-        , spawn "amixer -q -D pulse sset Master 6000- unmute")
-    , ("<XF86AudioPlay>"
-        , spawn $ unwords
-        [ "dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify"
-        , "/org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.PlayPause"
-        ])
-    , ("<XF86AudioNext>"
-        , spawn $ unwords
-        [ "dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify"
-        , "/org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Next"
-        ])
-    , ("<XF86AudioPrevious>"
-        , spawn $ unwords
-        [ "dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify"
-        , "/org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Previous"
-        ])
-    , ("<Print>", scrot "")
-    , ("S-<Print>", scrot "-s")
-    , ("C-<Print>", scrot "-u")
+    , ("M-u", prevScreen )
+    , ("S-M-u", shiftPrevScreen )
+    , ("M-i", nextScreen )
+    , ("S-M-i", shiftNextScreen )
     ]
-
-startup :: X ()
-startup = do
-    user <- liftIO $ getEnv "USER"
-    spawn $ unwords -- restart trayer on M-q
-        [ "killall -u " ++ user ++ " trayer;"
-        , "exec trayer --edge top --align right --SetDockType true"
-        , "--SetPartialStrut true --expand true --width 15 --transparent true"
-        , "--tint 0x000000 --height 20 --distancefrom right --distance 750"
-        ]
-    --spawn "xsetroot -solid #888888"
-    --spawn "xloadimage -onroot -fullscreen <path.to.image>"
-    return ()
 
 gnomeRegister2 :: MonadIO m => m ()
 gnomeRegister2 = io $ do
@@ -148,15 +91,42 @@ gnomeRegister2 = io $ do
             ,"string:xmonad"
             ,"string:" ++ sessionId]
 
-scrot opts = spawn $ unwords [
-      "sleep 0.2;"
-    , "scrot "
-    , opts
-    , "-e 'xdg-open $f'"
-    , "$HOME/Downloads/screenshot-%Y-%m-%d-%H%M%S.png"
-    ]
+prettyPrinter :: D.Client -> PP
+prettyPrinter dbus = defaultPP
+    { ppOutput   = dbusOutput dbus
+    , ppTitle    = pangoSanitize
+    , ppCurrent  = pangoColor "#DD4814" . pangoSanitize
+    , ppVisible  = pangoSanitize
+    , ppHidden   = pangoColor "#333333" . pangoSanitize
+    , ppUrgent   = pangoColor "red"
+    , ppLayout   = const ""
+    , ppSep      = " "
+    }
 
-dmenu = unwords [
-      "exec `~/.cabal/bin/yeganesh -x --"
-    , "-fn -*-fixed-*-*-*-*-15-*-*-*-*-*-iso8859-1`"
-    ]
+getWellKnownName :: D.Client -> IO ()
+getWellKnownName dbus = do
+  D.requestName dbus (D.busName_ "org.xmonad.Log")
+                [D.nameAllowReplacement, D.nameReplaceExisting, D.nameDoNotQueue]
+  return ()
+  
+dbusOutput :: D.Client -> String -> IO ()
+dbusOutput dbus str = do
+    let signal = (D.signal (D.objectPath_ "/org/xmonad/Log") (D.interfaceName_ "org.xmonad.Log") (D.memberName_ "Update")) {
+            D.signalBody = [D.toVariant ("<b>" ++ (UTF8.decodeString str) ++ "</b>")]
+        }
+    D.emit dbus signal
+
+pangoColor :: String -> String -> String
+pangoColor fg = wrap left right
+  where
+    left  = "<span foreground=\"" ++ fg ++ "\">"
+    right = "</span>"
+
+pangoSanitize :: String -> String
+pangoSanitize = foldr sanitize ""
+  where
+    sanitize '>'  xs = "&gt;" ++ xs
+    sanitize '<'  xs = "&lt;" ++ xs
+    sanitize '\"' xs = "&quot;" ++ xs
+    sanitize '&'  xs = "&amp;" ++ xs
+    sanitize x    xs = x:xs
